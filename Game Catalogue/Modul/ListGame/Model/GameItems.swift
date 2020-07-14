@@ -18,5 +18,4 @@ struct GameItems:Codable {
     let rating: Double?
     let rating_top: Int?
     let ratings_count: Int?
-   // let reviews_text_count: String?
 }

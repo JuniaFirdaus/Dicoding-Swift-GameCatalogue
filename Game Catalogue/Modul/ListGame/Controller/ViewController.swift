@@ -7,144 +7,151 @@
 //
 
 import UIKit
+import JGProgressHUD
+import CoreData
 
 class ViewController: UIViewController, UITableViewDelegate, UITableViewDataSource {
     
     @IBOutlet weak var searchGame: UISearchBar!
     @IBOutlet weak var tableViewGame: UITableView!
+    @IBOutlet weak var switchGame: UISwitch!
+    
+    var isFavoriteSwitched:Bool?
+    var hud : JGProgressHUD?
     var gameItems = [GameItems]()
     var search:String?
     
+    private var gameFavoriteItems: [FavoriteModel] = []
+    private lazy var memberProvider: FavoriteProvider = { return FavoriteProvider() }()
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        hud = JGProgressHUD(style: .dark)
         tableViewGame.delegate = self
         tableViewGame.dataSource = self
         searchGame.delegate = self
         searchGame.returnKeyType = .search
         searchGame.placeholder = "Search Game"
         
-        getData()
-        // Do any additional setup after loading the view.
+        getDataGame()
     }
     
-    @IBAction func showAbout(_ sender: Any) {
-        let storyBoard = UIStoryboard(name: "About", bundle: nil)
-        let destination = storyBoard.instantiateViewController(withIdentifier: "aboutVC") as! AboutViewController
-        destination.modalPresentationStyle = .fullScreen
-        present(destination, animated: true, completion: nil)
+    @IBAction func switchFavoriteGame(_ sender: UISwitch) {
+        if sender.isOn {
+            isFavoriteSwitched = true
+            getData()
+        }else{
+            getDataGame()
+            isFavoriteSwitched = false
+        }
     }
     
-    func getData() {
-        let components = URLComponents(string: BaseUrl.BaseUrl+"games")!
-        
-        let request = URLRequest(url: components.url!)
-        
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            guard let response = response as? HTTPURLResponse else { return }
-            if let data = data {
+    func getDataGame(){
+        hud?.show(in: self.view, animated: true)
+        initProviderServices.request(InitService.getDataGames) { (result) in
+            switch result{
+            case .success(let response):
+                self.hud?.dismiss(animated: true)
                 if response.statusCode == 200 {
                     do {
-                        let responses = try JSONDecoder().decode(GameResponse.self, from: data)
+                        let responses = try JSONDecoder().decode(GameResponse.self, from: response.data)
                         self.gameItems.removeAll()
                         self.gameItems = responses.results
-                        if self.gameItems.count != 0 {
-                            DispatchQueue.main.async {
-                                self.tableViewGame.reloadData()
-                            }
-                            
-                        }
+                        self.tableViewGame.reloadData()
                     } catch let error {
                         print(error)
                     }
-                } else {
-                    print("ERROR: \(data), Http Status: \(response.statusCode)")
                 }
+            case .failure(let fail):
+                self.hud?.dismiss(animated: true)
+                print(fail)
             }
         }
-        
-        task.resume()
     }
     
-    func getSearchData(game:String) {
-        let components = URLComponents(string: BaseUrl.BaseUrl+"games?search=\(game)")!
+    private func getData(){
+        self.memberProvider.getAllMember{ (result) in
+            DispatchQueue.main.async {
+                self.gameFavoriteItems = result
+                self.tableViewGame.reloadData()
+            }
+        }
+    }
         
-        let request = URLRequest(url: components.url!)
-        
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            guard let response = response as? HTTPURLResponse else { return }
-            if let data = data {
+    func getSerachDataGame(game:String){
+        hud?.show(in: self.view, animated: true)
+        initProviderServices.request(InitService.getSearchDataGames(game)) { (result) in
+            
+            self.searchGame.endEditing(true)
+            switch result{
+            case .success(let response):
+                print(response.request as Any)
+                self.hud?.dismiss(animated: true)
                 if response.statusCode == 200 {
                     do {
-                        let responses = try JSONDecoder().decode(GameResponse.self, from: data)
+                        let responses = try JSONDecoder().decode(GameResponse.self, from: response.data)
                         self.gameItems.removeAll()
                         self.gameItems = responses.results
-                        if self.gameItems.count != 0 {
-                            DispatchQueue.main.async {
-                                self.tableViewGame.reloadData()
-                                
-                            }
-                        }
+                        self.tableViewGame.reloadData()
                     } catch let error {
                         print(error)
                     }
-                } else {
-                    print("ERROR: \(data), Http Status: \(response.statusCode)")
                 }
+            case .failure(let fail):
+                self.hud?.dismiss(animated: true)
+                print(fail)
             }
         }
-        
-        task.resume()
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return gameItems.count
+        if isFavoriteSwitched == true {
+            return gameFavoriteItems.count
+        }else{
+            return gameItems.count
+        }
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "tableViewCell") as! TableViewCell
-        cell.titleHeaderGame.text = gameItems[indexPath.row].name ?? ""
-        cell.titleSubGame.text = gameItems[indexPath.row].released ?? ""
-        cell.titleOverviewGame.text = "Rating " + "\(gameItems[indexPath.row].rating!)"
         
-        let url = URL(string: gameItems[indexPath.row].background_image ?? "-" )
-        
-        UIImage.loadFrom(url: url!) { image in
-            cell.imgGame.image = image
+        if isFavoriteSwitched == true {
+            cell.titleHeaderGame.text = gameFavoriteItems[indexPath.row].name_game ?? ""
+            cell.titleSubGame.text = gameFavoriteItems[indexPath.row].release_game ?? ""
+            cell.titleOverviewGame.text = gameFavoriteItems[indexPath.row].rating_game
+            Utils.loadImage(url: gameFavoriteItems[indexPath.row].image_game ?? "-", imageAttach: cell.imgGame)
+        }else{
+            cell.titleHeaderGame.text = gameItems[indexPath.row].name ?? ""
+            cell.titleSubGame.text = gameItems[indexPath.row].released ?? ""
+            cell.titleOverviewGame.text = "Rating " + "\(gameItems[indexPath.row].rating!)"
+            Utils.loadImage(url: gameItems[indexPath.row].background_image ?? "-", imageAttach: cell.imgGame)
         }
         
         return cell
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let storyBoard = UIStoryboard(name: "Main", bundle: nil)
-        let destination = storyBoard.instantiateViewController(withIdentifier: "detailVC") as! DetailViewController
-        destination.modalPresentationStyle = .fullScreen
-        destination.gameImage = gameItems[indexPath.row].background_image
-        destination.gameName = gameItems[indexPath.row].name
-        destination.gameRelease = gameItems[indexPath.row].released
-        destination.gameRating = "\(gameItems[indexPath.row].rating!)"
-        present(destination, animated: true, completion: nil)
+        
+        self.performSegue(withIdentifier: "detailVC", sender: indexPath);
+        
     }
     
-}
-
-extension UIImage {
-    
-    public static func loadFrom(url: URL, completion: @escaping (_ image: UIImage?) -> ()) {
-        DispatchQueue.global().async {
-            if let data = try? Data(contentsOf: url) {
-                DispatchQueue.main.async {
-                    completion(UIImage(data: data))
-                }
-            } else {
-                DispatchQueue.main.async {
-                    completion(nil)
-                }
+    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
+        if segue.identifier == "detailVC" {
+            if isFavoriteSwitched == true {
+                let row = (sender as! NSIndexPath).row
+                let destination = segue.destination as! DetailViewController
+                destination.modalPresentationStyle = .fullScreen
+                destination.idGame = Int(gameFavoriteItems[row].id_game!)
+            }else{
+                let row = (sender as! NSIndexPath).row
+                let destination = segue.destination as! DetailViewController
+                destination.modalPresentationStyle = .fullScreen
+                destination.idGame = gameItems[row].id
             }
         }
     }
-    
 }
 
 extension ViewController : UISearchBarDelegate{
@@ -156,7 +163,8 @@ extension ViewController : UISearchBarDelegate{
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
-            getData()
+            switchGame.isOn = false
+            getDataGame()
         }
         search = searchText
         
@@ -164,9 +172,13 @@ extension ViewController : UISearchBarDelegate{
     
     func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
         if search == ""{
-            getData()
+            switchGame.isOn = false
+            isFavoriteSwitched = false
+            getDataGame()
         }else{
-            getSearchData(game: search!)
+            switchGame.isOn = false
+            isFavoriteSwitched = false
+            getSerachDataGame(game: search!)
             
         }
     }
